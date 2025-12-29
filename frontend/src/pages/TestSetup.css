@@ -1,0 +1,50 @@
+.test-setup-container {
+  min-height: 100vh;
+  padding: 40px 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.test-setup-card {
+  background: white;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.test-setup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.test-setup-header h1 {
+  color: #111827;
+  font-size: 32px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+small {
+  display: block;
+  margin-top: 5px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .test-setup-header {
+    flex-direction: column;
+    gap: 15px;
+    align-items: flex-start;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
