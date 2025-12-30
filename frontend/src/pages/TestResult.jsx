@@ -17,24 +17,39 @@ const TestResult = () => {
   const fetchTestResult = async () => {
     try {
       const response = await fetch(`http://localhost:5000/api/test/${testId}`, {
-        credentials: "include", // Added credentials for session cookies
+        credentials: "include",
       })
 
       if (response.ok) {
         const data = await response.json()
+        console.log("[v0] Raw test result from backend:", data)
+        console.log("[v0] First answer raw:", data.answers[0])
+
         const transformedData = {
           ...data,
-          answers: data.answers.map((answer) => ({
-            ...answer,
-            options: {
-              A: answer.option_a || "",
-              B: answer.option_b || "",
-              C: answer.option_c || "",
-              D: answer.option_d || "",
-            },
-          })),
+          answers: data.answers.map((answer, idx) => {
+            console.log(`[v0] Answer ${idx + 1} options:`, {
+              option_a: answer.option_a,
+              option_b: answer.option_b,
+              option_c: answer.option_c,
+              option_d: answer.option_d,
+              options_object: answer.options,
+            })
+
+            return {
+              ...answer,
+              // Backend already provides options object, use it directly
+              options: answer.options || {
+                A: answer.option_a || "Option A text missing",
+                B: answer.option_b || "Option B text missing",
+                C: answer.option_c || "Option C text missing",
+                D: answer.option_d || "Option D text missing",
+              },
+            }
+          }),
         }
-        console.log("[v0] Test result loaded:", transformedData)
+        console.log("[v0] Transformed test result:", transformedData)
+        console.log("[v0] First answer options after transform:", transformedData.answers[0].options)
         setTestResult(transformedData)
       }
     } catch (err) {
@@ -118,22 +133,27 @@ const TestResult = () => {
               <p className="answer-question">{answer.question}</p>
 
               <div className="answer-options">
-                {Object.entries(answer.options).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className={`answer-option 
-                      ${key === answer.correct_answer ? "correct-answer" : ""} 
-                      ${key === answer.user_answer && !answer.is_correct ? "wrong-answer" : ""}
-                    `}
-                  >
-                    <span className="option-key">{key}.</span>
-                    <span className="option-value">{value}</span>
-                    {key === answer.correct_answer && <span className="option-indicator">✓ Correct</span>}
-                    {key === answer.user_answer && !answer.is_correct && (
-                      <span className="option-indicator wrong">✗ Your Answer</span>
-                    )}
-                  </div>
-                ))}
+                {Object.entries(answer.options).map(([key, value]) => {
+                  console.log(`[v0] Rendering option ${key}: "${value}"`)
+                  const displayValue = value || `[Option ${key} is empty]`
+
+                  return (
+                    <div
+                      key={key}
+                      className={`answer-option 
+                        ${key === answer.correct_answer ? "correct-answer" : ""} 
+                        ${key === answer.user_answer && !answer.is_correct ? "wrong-answer" : ""}
+                      `}
+                    >
+                      <span className="option-key">{key}.</span>
+                      <span className="option-value">{displayValue}</span>
+                      {key === answer.correct_answer && <span className="option-indicator">✓ Correct</span>}
+                      {key === answer.user_answer && !answer.is_correct && (
+                        <span className="option-indicator wrong">✗ Your Answer</span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           ))}

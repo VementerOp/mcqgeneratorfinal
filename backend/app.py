@@ -4,11 +4,8 @@ from database import db, init_db
 from models import User, MCQSet, MCQ, Test, TestAnswer
 from mcq_ai import generate_mcqs, generate_mcqs_from_pdf
 from datetime import timedelta
-
-from dotenv import load_dotenv
 import os
-for k in ["HTTP_PROXY","HTTPS_PROXY","http_proxy","https_proxy"]:
-    os.environ.pop(k, None)
+from dotenv import load_dotenv
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 dotenv_path = os.path.join(basedir, '.env')
@@ -372,17 +369,47 @@ def create_test():
         if not user_id:
             return jsonify({'error': 'Authentication required'}), 401
         
-        data = request.get_json()
-        
-        num_questions = data.get('num_questions', 5)
-        difficulty = data.get('difficulty', 'medium')
-        time_duration = data.get('time_duration', 10)
-        source_text = data.get('source_text', '')
-        
-        if not source_text:
-            return jsonify({'error': 'Source text is required'}), 400
-        
-        mcqs = generate_mcqs(source_text, num_questions, difficulty)
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            # Handle file upload
+            source_type = request.form.get('source_type', 'text')
+            num_questions = int(request.form.get('num_questions', 5))
+            difficulty = request.form.get('difficulty', 'medium')
+            time_duration = int(request.form.get('time_duration', 10))
+            
+            if source_type == 'pdf':
+                if 'pdf_file' not in request.files:
+                    return jsonify({'error': 'PDF file is required'}), 400
+                
+                pdf_file = request.files['pdf_file']
+                
+                if pdf_file.filename == '':
+                    return jsonify({'error': 'No file selected'}), 400
+                
+                if not pdf_file.filename.endswith('.pdf'):
+                    return jsonify({'error': 'Only PDF files are allowed'}), 400
+                
+                # Generate MCQs from PDF
+                from mcq_ai import generate_mcqs_from_pdf
+                mcqs = generate_mcqs_from_pdf(pdf_file, num_questions, difficulty)
+            else:
+                source_text = request.form.get('source_text', '')
+                
+                if not source_text:
+                    return jsonify({'error': 'Source text is required'}), 400
+                
+                mcqs = generate_mcqs(source_text, num_questions, difficulty)
+        else:
+            data = request.get_json()
+            
+            num_questions = data.get('num_questions', 5)
+            difficulty = data.get('difficulty', 'medium')
+            time_duration = data.get('time_duration', 10)
+            source_text = data.get('source_text', '')
+            
+            if not source_text:
+                return jsonify({'error': 'Source text is required'}), 400
+            
+            mcqs = generate_mcqs(source_text, num_questions, difficulty)
         
         if not mcqs:
             return jsonify({'error': 'Could not generate MCQs'}), 400
@@ -398,6 +425,8 @@ def create_test():
         }), 200
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/test/submit', methods=['POST'])
@@ -417,6 +446,19 @@ def submit_test():
         questions = data.get('questions', [])
         answers = data.get('answers', {})
         
+        print(f"\n{'='*60}")
+        print(f"[v0] TEST SUBMISSION DEBUG")
+        print(f"{'='*60}")
+        print(f"User ID: {user_id}")
+        print(f"Total Questions: {len(questions)}")
+        print(f"User Answers: {answers}")
+        print(f"\n[v0] First Question Structure:")
+        if questions:
+            print(f"  Question: {questions[0].get('question', 'N/A')}")
+            print(f"  Options keys: {list(questions[0].get('options', {}).keys())}")
+            print(f"  Options values: {questions[0].get('options', {})}")
+        print(f"{'='*60}\n")
+        
         if not questions:
             return jsonify({'error': 'No questions provided'}), 400
         
@@ -435,8 +477,27 @@ def submit_test():
         db.session.flush()
         
         for idx, question in enumerate(questions):
+            # Get user answer (convert index to string for dict lookup)
             user_answer = answers.get(str(idx))
-            is_correct = user_answer == question['correct_answer']
+            correct_answer = question['correct_answer']
+            
+            user_answer_normalized = user_answer.strip().upper() if user_answer else None
+            correct_answer_normalized = correct_answer.strip().upper() if correct_answer else None
+            
+            is_correct = user_answer_normalized == correct_answer_normalized
+            
+            print(f"Question {idx + 1}:")
+            print(f"  Correct: {correct_answer} (normalized: {correct_answer_normalized})")
+            print(f"  User: {user_answer} (normalized: {user_answer_normalized})")
+            print(f"  Is Correct: {is_correct}")
+            options = question.get('options', {})
+            option_a = options.get('A') or options.get('a') or question.get('option_a') or ''
+            option_b = options.get('B') or options.get('b') or question.get('option_b') or ''
+            option_c = options.get('C') or options.get('c') or question.get('option_c') or ''
+            option_d = options.get('D') or options.get('d') or question.get('option_d') or ''
+            
+            print(f"  Option A: {option_a[:50]}..." if len(option_a) > 50 else f"  Option A: {option_a}")
+            print(f"  Option B: {option_b[:50]}..." if len(option_b) > 50 else f"  Option B: {option_b}")
             
             if is_correct:
                 score += 1
@@ -444,29 +505,36 @@ def submit_test():
             test_answer = TestAnswer(
                 test_id=test.id,
                 question=question['question'],
-                option_a=question['options']['A'],
-                option_b=question['options']['B'],
-                option_c=question['options']['C'],
-                option_d=question['options']['D'],
-                correct_answer=question['correct_answer'],
+                option_a=option_a,
+                option_b=option_b,
+                option_c=option_c,
+                option_d=option_d,
+                correct_answer=correct_answer,
                 user_answer=user_answer,
                 is_correct=is_correct
             )
             db.session.add(test_answer)
         
         test.score = score
+        test.percentage = round((score / total_marks * 100), 2) if total_marks > 0 else 0
+        
         db.session.commit()
+        
+        print(f"\n[v0] Test submitted: Score {score}/{total_marks} ({test.percentage}%)\n")
         
         return jsonify({
             'message': 'Test submitted successfully',
             'test_id': test.id,
             'score': score,
             'total_marks': total_marks,
-            'percentage': round((score / total_marks * 100), 2)
+            'percentage': test.percentage
         }), 200
         
     except Exception as e:
         db.session.rollback()
+        print(f"[v0] Error submitting test: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/test/<int:test_id>', methods=['GET'])

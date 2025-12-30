@@ -195,7 +195,7 @@ const GenerateMCQ = () => {
                 value={formData.num_questions}
                 onChange={handleChange}
                 min="1"
-                max="20"
+                max="100"
               />
             </div>
 

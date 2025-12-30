@@ -6,12 +6,14 @@ import "./TestSetup.css"
 
 const TestSetup = () => {
   const navigate = useNavigate()
+  const [sourceType, setSourceType] = useState("text")
   const [formData, setFormData] = useState({
     source_text: "",
     num_questions: 5,
     difficulty: "medium",
     time_duration: 10,
   })
+  const [pdfFile, setPdfFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -22,25 +24,43 @@ const TestSetup = () => {
     })
   }
 
+  const handleFileChange = (e) => {
+    setPdfFile(e.target.files[0])
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError("")
 
-    if (!formData.source_text.trim()) {
+    if (sourceType === "text" && !formData.source_text.trim()) {
       setError("Please enter source text for generating test questions")
+      return
+    }
+
+    if (sourceType === "pdf" && !pdfFile) {
+      setError("Please upload a PDF file")
       return
     }
 
     setLoading(true)
 
     try {
+      const formDataToSend = new FormData()
+      formDataToSend.append("source_type", sourceType)
+      formDataToSend.append("num_questions", formData.num_questions)
+      formDataToSend.append("difficulty", formData.difficulty)
+      formDataToSend.append("time_duration", formData.time_duration)
+
+      if (sourceType === "text") {
+        formDataToSend.append("source_text", formData.source_text)
+      } else {
+        formDataToSend.append("pdf_file", pdfFile)
+      }
+
       const response = await fetch("http://localhost:5000/api/test/create", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Added credentials for session cookies
-        body: JSON.stringify(formData),
+        credentials: "include",
+        body: formDataToSend,
       })
 
       const data = await response.json()
@@ -55,7 +75,7 @@ const TestSetup = () => {
         setError(data.error || "Failed to create test. Make sure GROQ_API_KEY is set in backend/.env")
       }
     } catch (err) {
-      console.error("[v0] TestSetup network error:", err)
+      console.error("TestSetup network error:", err)
       setError("Network error. Please check if the backend server is running on http://localhost:5000")
     } finally {
       setLoading(false)
@@ -76,17 +96,49 @@ const TestSetup = () => {
 
         <form onSubmit={handleSubmit}>
           <div className="input-group">
-            <label>Source Text for Questions</label>
-            <textarea
-              name="source_text"
-              value={formData.source_text}
-              onChange={handleChange}
-              rows="8"
-              placeholder="Enter the text content from which test questions will be generated..."
-              required
-            />
-            <small>The AI will generate multiple-choice questions based on this text.</small>
+            <label>Source Type</label>
+            <div className="radio-group">
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  value="text"
+                  checked={sourceType === "text"}
+                  onChange={(e) => setSourceType(e.target.value)}
+                />
+                Text
+              </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  value="pdf"
+                  checked={sourceType === "pdf"}
+                  onChange={(e) => setSourceType(e.target.value)}
+                />
+                PDF
+              </label>
+            </div>
           </div>
+
+          {sourceType === "text" ? (
+            <div className="input-group">
+              <label>Source Text for Questions</label>
+              <textarea
+                name="source_text"
+                value={formData.source_text}
+                onChange={handleChange}
+                rows="8"
+                placeholder="Enter the text content from which test questions will be generated..."
+                required
+              />
+              <small>The AI will generate multiple-choice questions based on this text.</small>
+            </div>
+          ) : (
+            <div className="input-group">
+              <label>Upload PDF</label>
+              <input type="file" accept=".pdf" onChange={handleFileChange} />
+              <small>Upload a PDF file to generate test questions from its content.</small>
+            </div>
+          )}
 
           <div className="form-row">
             <div className="input-group">
@@ -97,7 +149,7 @@ const TestSetup = () => {
                 value={formData.num_questions}
                 onChange={handleChange}
                 min="1"
-                max="20"
+                max="100"
                 required
               />
             </div>
