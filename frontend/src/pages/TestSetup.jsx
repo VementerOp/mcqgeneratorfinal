@@ -9,6 +9,7 @@ const TestSetup = () => {
   const [sourceType, setSourceType] = useState("text")
   const [formData, setFormData] = useState({
     source_text: "",
+    topic: "",
     num_questions: 5,
     difficulty: "medium",
     time_duration: 10,
@@ -42,6 +43,11 @@ const TestSetup = () => {
       return
     }
 
+    if (sourceType === "topic" && !formData.topic.trim()) {
+      setError("Please enter a topic name")
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -53,8 +59,10 @@ const TestSetup = () => {
 
       if (sourceType === "text") {
         formDataToSend.append("source_text", formData.source_text)
-      } else {
+      } else if (sourceType === "pdf") {
         formDataToSend.append("pdf_file", pdfFile)
+      } else if (sourceType === "topic") {
+        formDataToSend.append("topic", formData.topic)
       }
 
       const response = await fetch("http://localhost:5000/api/test/create", {
@@ -116,10 +124,19 @@ const TestSetup = () => {
                 />
                 PDF
               </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  value="topic"
+                  checked={sourceType === "topic"}
+                  onChange={(e) => setSourceType(e.target.value)}
+                />
+                Topic
+              </label>
             </div>
           </div>
 
-          {sourceType === "text" ? (
+          {sourceType === "text" && (
             <div className="input-group">
               <label>Source Text for Questions</label>
               <textarea
@@ -132,11 +149,29 @@ const TestSetup = () => {
               />
               <small>The AI will generate multiple-choice questions based on this text.</small>
             </div>
-          ) : (
+          )}
+
+          {sourceType === "pdf" && (
             <div className="input-group">
               <label>Upload PDF</label>
               <input type="file" accept=".pdf" onChange={handleFileChange} />
               <small>Upload a PDF file to generate test questions from its content.</small>
+            </div>
+          )}
+
+          {sourceType === "topic" && (
+            <div className="input-group">
+              <label>Enter Topic Name</label>
+              <input
+                type="text"
+                name="topic"
+                value={formData.topic}
+                onChange={handleChange}
+                placeholder="e.g., Photosynthesis, World War II, Python Programming..."
+                className="topic-input"
+                required
+              />
+              <small>AI will generate test questions based on its knowledge of this topic.</small>
             </div>
           )}
 

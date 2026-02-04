@@ -11,6 +11,7 @@ const GenerateMCQ = () => {
   const [sourceType, setSourceType] = useState("text")
   const [formData, setFormData] = useState({
     text: "",
+    topic: "",
     num_questions: 5,
     difficulty: "medium",
   })
@@ -55,13 +56,20 @@ const GenerateMCQ = () => {
           return
         }
         formDataToSend.append("text", formData.text)
-      } else {
+      } else if (sourceType === "pdf") {
         if (!pdfFile) {
           setError("Please upload a PDF file")
           setLoading(false)
           return
         }
         formDataToSend.append("pdf_file", pdfFile)
+      } else if (sourceType === "topic") {
+        if (!formData.topic.trim()) {
+          setError("Please enter a topic name")
+          setLoading(false)
+          return
+        }
+        formDataToSend.append("topic", formData.topic)
       }
 
       console.log("[v0] Sending request to backend...")
@@ -165,10 +173,19 @@ const GenerateMCQ = () => {
                 />
                 PDF
               </label>
+              <label className="radio-label">
+                <input
+                  type="radio"
+                  value="topic"
+                  checked={sourceType === "topic"}
+                  onChange={(e) => setSourceType(e.target.value)}
+                />
+                Topic
+              </label>
             </div>
           </div>
 
-          {sourceType === "text" ? (
+          {sourceType === "text" && (
             <div className="input-group">
               <label>Enter Text</label>
               <textarea
@@ -179,10 +196,27 @@ const GenerateMCQ = () => {
                 placeholder="Paste your text content here..."
               />
             </div>
-          ) : (
+          )}
+
+          {sourceType === "pdf" && (
             <div className="input-group">
               <label>Upload PDF</label>
               <input type="file" accept=".pdf" onChange={handleFileChange} />
+            </div>
+          )}
+
+          {sourceType === "topic" && (
+            <div className="input-group">
+              <label>Enter Topic Name</label>
+              <input
+                type="text"
+                name="topic"
+                value={formData.topic}
+                onChange={handleChange}
+                placeholder="e.g., Photosynthesis, World War II, Python Programming..."
+                className="topic-input"
+              />
+              <small className="input-hint">AI will generate questions based on its knowledge of this topic</small>
             </div>
           )}
 

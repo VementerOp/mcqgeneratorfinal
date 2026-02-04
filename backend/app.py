@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from database import db, init_db
 from models import User, MCQSet, MCQ, Test, TestAnswer
-from mcq_ai import generate_mcqs, generate_mcqs_from_pdf
+from mcq_ai import generate_mcqs, generate_mcqs_from_pdf, generate_mcqs_from_topic
 from summarize_ai import generate_summary, generate_summary_from_pdf
 from datetime import timedelta
 import os
@@ -232,6 +232,13 @@ def generate_mcq():
                 print(f"[v0] Generating MCQs from PDF: {pdf_file.filename}")
                 mcqs = generate_mcqs_from_pdf(pdf_file, num_questions, difficulty)
             
+            elif source_type == 'topic':
+                topic = request.form.get('topic', '')
+                if not topic:
+                    return jsonify({'error': 'Topic is required for MCQ generation'}), 400
+                print(f"[v0] Generating MCQs from topic: {topic}")
+                mcqs = generate_mcqs_from_topic(topic, num_questions, difficulty)
+            
             if not mcqs or len(mcqs) == 0:
                 error_msg = 'No MCQs were generated. Please check if your text is meaningful and try again.'
                 print(f"[v0] ERROR: {error_msg}")
@@ -400,6 +407,14 @@ def create_test():
                 # Generate MCQs from PDF
                 from mcq_ai import generate_mcqs_from_pdf
                 mcqs = generate_mcqs_from_pdf(pdf_file, num_questions, difficulty)
+            elif source_type == 'topic':
+                topic = request.form.get('topic', '')
+                
+                if not topic:
+                    return jsonify({'error': 'Topic is required'}), 400
+                
+                print(f"[v0] Generating test MCQs from topic: {topic}")
+                mcqs = generate_mcqs_from_topic(topic, num_questions, difficulty)
             else:
                 source_text = request.form.get('source_text', '')
                 

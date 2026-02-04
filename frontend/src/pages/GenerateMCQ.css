@@ -161,6 +161,20 @@
   accent-color: #667eea;
 }
 
+.topic-input {
+  font-size: 16px !important;
+  padding: 18px !important;
+}
+
+.input-hint {
+  display: block;
+  margin-top: 10px;
+  color: #667eea;
+  font-size: 13px;
+  font-weight: 600;
+  font-style: italic;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
