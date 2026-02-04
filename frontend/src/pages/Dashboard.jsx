@@ -86,9 +86,14 @@ const Dashboard = () => {
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
-        <div>
-          <h1>Welcome, {dashboardData?.user?.username || user?.username}!</h1>
-          <p>Track your progress and manage your tests</p>
+        <div className="header-left">
+          <button className="home-icon-btn" onClick={() => navigate("/")} title="Back to Home">
+            🏠
+          </button>
+          <div>
+            <h1>Welcome, {dashboardData?.user?.username || user?.username}!</h1>
+            <p>Track your progress and manage your tests</p>
+          </div>
         </div>
         <button className="btn btn-danger" onClick={handleLogout}>
           Logout
@@ -121,13 +126,19 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <div className="dashboard-actions">
-        <button className="btn btn-primary" onClick={() => navigate("/generate-mcq")}>
-          Generate MCQs
-        </button>
-        <button className="btn btn-success" onClick={() => navigate("/test-setup")}>
-          Take a Test
-        </button>
+      <div className="dashboard-quick-actions">
+        <div className="action-button" onClick={() => navigate("/")}>
+          <div className="action-icon">🏠</div>
+          <div className="action-label">Home</div>
+        </div>
+        <div className="action-button" onClick={() => navigate("/generate-mcq")}>
+          <div className="action-icon">✍️</div>
+          <div className="action-label">Generate MCQ</div>
+        </div>
+        <div className="action-button" onClick={() => navigate("/test-setup")}>
+          <div className="action-icon">🎯</div>
+          <div className="action-label">Take Test</div>
+        </div>
       </div>
 
       <div className="dashboard-section">

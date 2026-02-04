@@ -4,6 +4,7 @@ import Login from "./pages/Login"
 import Signup from "./pages/Signup"
 import Dashboard from "./pages/Dashboard"
 import GenerateMCQ from "./pages/GenerateMCQ"
+import Summarize from "./pages/Summarize"
 import TestSetup from "./pages/TestSetup"
 import TestPage from "./pages/TestPage"
 import TestResult from "./pages/TestResult"
@@ -29,6 +30,14 @@ function App() {
             }
           />
           <Route path="/generate-mcq" element={<GenerateMCQ />} />
+          <Route
+            path="/summarize"
+            element={
+              <PrivateRoute>
+                <Summarize />
+              </PrivateRoute>
+            }
+          />
           <Route
             path="/test-setup"
             element={

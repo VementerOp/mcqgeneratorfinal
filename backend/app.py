@@ -3,6 +3,7 @@ from flask_cors import CORS
 from database import db, init_db
 from models import User, MCQSet, MCQ, Test, TestAnswer
 from mcq_ai import generate_mcqs, generate_mcqs_from_pdf
+from summarize_ai import generate_summary, generate_summary_from_pdf
 from datetime import timedelta
 import os
 from dotenv import load_dotenv
@@ -12,6 +13,7 @@ dotenv_path = os.path.join(basedir, '.env')
 load_dotenv(dotenv_path)
 
 groq_api_key = os.getenv('GROQ_API_KEY')
+gemini_api_key = os.getenv('GEMINI_API_KEY')
 print("\n" + "="*60)
 print("[v0] ENVIRONMENT VARIABLE CHECK")
 print("="*60)
@@ -25,6 +27,13 @@ else:
     print("⚠️  WARNING: GROQ_API_KEY not found!")
     print(f"   Make sure .env file exists at: {dotenv_path}")
     print("   and contains: GROQ_API_KEY=your_actual_key_here")
+print(f"GEMINI_API_KEY exists: {gemini_api_key is not None}")
+if gemini_api_key:
+    print(f"GEMINI_API_KEY value: {gemini_api_key[:10]}...{gemini_api_key[-10:]}")
+else:
+    print("⚠️  WARNING: GEMINI_API_KEY not found!")
+    print(f"   Make sure .env file exists at: {dotenv_path}")
+    print("   and contains: GEMINI_API_KEY=your_actual_key_here")
 print("="*60 + "\n")
 
 app = Flask(__name__)
@@ -576,6 +585,71 @@ def get_test_history():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# SUMMARIZATION ROUTES
+
+@app.route('/api/summary/generate', methods=['POST'])
+def generate_summary_endpoint():
+    """Generate summary from text or PDF"""
+    
+    try:
+        # Get form data
+        source_type = request.form.get('source_type', 'text')
+        summary_length = request.form.get('summary_length', 'medium')
+        
+        print(f"\n{'='*60}")
+        print("[v0] SUMMARIZATION REQUEST")
+        print(f"{'='*60}")
+        print(f"Source type: {source_type}")
+        print(f"Summary length: {summary_length}")
+        
+        summary = ""
+        try:
+            if source_type == 'text':
+                text = request.form.get('text', '')
+                if not text:
+                    return jsonify({'error': 'Text is required for summarization'}), 400
+                print(f"[v0] Generating summary from text (length: {len(text)} chars)")
+                summary = generate_summary(text, summary_length)
+            
+            elif source_type == 'pdf':
+                if 'pdf_file' not in request.files:
+                    return jsonify({'error': 'PDF file is required'}), 400
+                
+                pdf_file = request.files['pdf_file']
+                print(f"[v0] Generating summary from PDF: {pdf_file.filename}")
+                summary = generate_summary_from_pdf(pdf_file, summary_length)
+            
+            if not summary:
+                error_msg = 'No summary was generated. Please check if your text is meaningful and try again.'
+                print(f"[v0] ERROR: {error_msg}")
+                return jsonify({'error': error_msg}), 500
+            
+            print(f"[v0] ✓ Summary generated successfully")
+            print(f"{'='*60}\n")
+        
+        except ValueError as ve:
+            error_msg = str(ve)
+            print(f"[v0] VALIDATION ERROR: {error_msg}")
+            return jsonify({'error': error_msg}), 400
+        
+        except Exception as gen_error:
+            error_msg = f"Summary generation failed: {str(gen_error)}"
+            print(f"[v0] GENERATION ERROR: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': error_msg}), 500
+        
+        return jsonify({
+            'message': 'Summary generated successfully',
+            'summary': summary
+        }), 200
+        
+    except Exception as e:
+        print(f"\n✗✗✗ CRITICAL ERROR in generate_summary_endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 # DASHBOARD ROUTES
 
