@@ -11,10 +11,11 @@ const TestPage = () => {
 
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [answers, setAnswers] = useState({})
-  const [timeLeft, setTimeLeft] = useState(null) // Start with null instead of 0
+  const [timeLeft, setTimeLeft] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [showEndTestModal, setShowEndTestModal] = useState(false)
   const hasSubmitted = useRef(false)
-  const timerStarted = useRef(false) // Track if timer has actually started
+  const timerStarted = useRef(false)
 
   useEffect(() => {
     if (!testData) {
@@ -34,7 +35,7 @@ const TestPage = () => {
       timerStarted.current = true
       hasSubmitted.current = false
     }
-  }, []) // Empty dependency array - run only once on mount
+  }, [navigate, testData])
 
   useEffect(() => {
     // Don't start countdown until timeLeft is properly initialized
@@ -63,6 +64,7 @@ const TestPage = () => {
 
       return () => clearInterval(timer)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft])
 
   const handleAnswerSelect = (answer) => {
@@ -150,6 +152,15 @@ const TestPage = () => {
     }
   }
 
+  const handleEndTest = () => {
+    setShowEndTestModal(true)
+  }
+
+  const confirmEndTest = () => {
+    setShowEndTestModal(false)
+    navigate("/test-setup")
+  }
+
   if (!testData) {
     return <div className="loading">Loading test...</div>
   }
@@ -181,11 +192,16 @@ const TestPage = () => {
             Question {currentQuestion + 1} of {testData.mcqs.length}
           </p>
         </div>
-        <div className={`timer ${timeLeft < 60 ? "warning" : ""}`}>
-          <span className="timer-icon">⏱️</span>
-          <span className="timer-text">
-            {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
-          </span>
+        <div className="header-right">
+          <div className={`timer ${timeLeft < 60 ? "warning" : ""}`}>
+            <span className="timer-icon">⏱️</span>
+            <span className="timer-text">
+              {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
+            </span>
+          </div>
+          <button className="btn btn-end-test" onClick={handleEndTest}>
+            End Test
+          </button>
         </div>
       </div>
 
@@ -216,16 +232,6 @@ const TestPage = () => {
             ← Previous
           </button>
 
-          <div className="question-indicators">
-            {testData.mcqs.map((_, index) => (
-              <div
-                key={index}
-                className={`indicator ${index === currentQuestion ? "active" : ""} ${answers[index] ? "answered" : ""}`}
-                onClick={() => setCurrentQuestion(index)}
-              />
-            ))}
-          </div>
-
           {currentQuestion < testData.mcqs.length - 1 ? (
             <button className="btn btn-primary" onClick={handleNext}>
               Next →
@@ -236,7 +242,64 @@ const TestPage = () => {
             </button>
           )}
         </div>
+
+        <div className="question-numbers-bar">
+          <button
+            className="num-scroll-btn"
+            onClick={() => {
+              const el = document.querySelector('.question-numbers-track')
+              if (el) el.scrollBy({ left: -200, behavior: 'smooth' })
+            }}
+            aria-label="Scroll left"
+          >
+            ‹
+          </button>
+          <div className="question-numbers-track">
+            {testData.mcqs.map((_, index) => (
+              <button
+                key={index}
+                className={`q-num-btn ${index === currentQuestion ? "active" : ""} ${answers[index] ? "answered" : ""}`}
+                onClick={() => setCurrentQuestion(index)}
+              >
+                {index + 1}
+              </button>
+            ))}
+          </div>
+          <button
+            className="num-scroll-btn"
+            onClick={() => {
+              const el = document.querySelector('.question-numbers-track')
+              if (el) el.scrollBy({ left: 200, behavior: 'smooth' })
+            }}
+            aria-label="Scroll right"
+          >
+            ›
+          </button>
+        </div>
       </div>
+
+      {showEndTestModal && (
+        <div className="end-test-overlay" onClick={() => setShowEndTestModal(false)}>
+          <div className="end-test-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-warning-icon">!</div>
+            <h3 className="modal-title">End Test?</h3>
+            <p className="modal-message">
+              Are you sure you want to end this test? Your progress will be discarded and this action cannot be undone.
+            </p>
+            <p className="modal-stats">
+              You have answered {Object.keys(answers).length} of {testData.mcqs.length} questions.
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowEndTestModal(false)}>
+                Continue Test
+              </button>
+              <button className="btn btn-danger" onClick={confirmEndTest}>
+                Discard & End Test
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

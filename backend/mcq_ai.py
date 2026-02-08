@@ -38,42 +38,102 @@ def extract_json(text):
         print("JSON PARSE ERROR:", e)
     return []
 
-def generate_mcqs_with_groq(text, num_questions=5, difficulty='medium'):
-    """
-    Generate MCQs using Groq API with direct HTTP requests
-    
-    Args:
-        text (str): Input text to generate MCQs from
-        num_questions (int): Number of MCQs to generate
-        difficulty (str): Difficulty level (easy/medium/hard)
-    
-    Returns:
-        list: List of MCQ dictionaries
-    """
-    api_key = os.getenv('GROQ_API_KEY')
-    
-    if not api_key:
-        print("\n" + "="*60)
-        print("[v0] ERROR: GROQ_API_KEY NOT FOUND")
-        print("="*60)
-        print("Current working directory:", os.getcwd())
-        print("\nTo fix this:")
-        print("1. Make sure '.env' file exists in the 'backend' folder")
-        print("2. Add this line: GROQ_API_KEY=your_actual_groq_api_key")
-        print("3. Restart the Flask server")
-        print("="*60 + "\n")
-        raise ValueError("GROQ_API_KEY not found in environment variables. Make sure GROQ_API_KEY is set in backend/.env")
-    
-    print(f"[v0] Using Groq API key: {api_key[:10]}...{api_key[-5:]}")
+import time
 
+BATCH_SIZE = 25  # Max questions per API call
+
+def _format_mcqs(mcqs_raw, difficulty):
+    """Format raw MCQ JSON into the expected structure."""
+    formatted_mcqs = []
+    for mcq in mcqs_raw:
+        if 'question' in mcq and 'options' in mcq and 'answer' in mcq:
+            options = mcq['options']
+            if not isinstance(options, list) or len(options) < 4:
+                continue
+            try:
+                option_a = str(options[0]) if options[0] is not None else ""
+                option_b = str(options[1]) if options[1] is not None else ""
+                option_c = str(options[2]) if options[2] is not None else ""
+                option_d = str(options[3]) if options[3] is not None else ""
+            except (IndexError, TypeError):
+                continue
+
+            formatted_mcq = {
+                'question': str(mcq['question']),
+                'option_a': option_a,
+                'option_b': option_b,
+                'option_c': option_c,
+                'option_d': option_d,
+                'correct_answer': 'A',
+                'difficulty': difficulty
+            }
+            answer_text = str(mcq['answer']).strip()
+            option_list = [option_a, option_b, option_c, option_d]
+            for i in range(4):
+                if option_list[i].strip() == answer_text:
+                    formatted_mcq['correct_answer'] = ['A', 'B', 'C', 'D'][i]
+                    break
+            formatted_mcqs.append(formatted_mcq)
+    return formatted_mcqs
+
+
+def _call_groq_api(api_key, messages, timeout=90):
+    """Make a single call to the Groq API and return parsed MCQs."""
     url = "https://api.groq.com/openai/v1/chat/completions"
-    
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": messages,
+        "temperature": 0.5,
+        "max_tokens": 8000
+    }
 
-    prompt = f"""Generate exactly {num_questions} multiple choice questions from the following text.
+    response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    if response.status_code == 429:
+        print("[v0] Rate limited, waiting 5 seconds...")
+        time.sleep(5)
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+
+    if response.status_code != 200:
+        print(f"[v0] Groq API error {response.status_code}: {response.text}")
+        raise Exception(f"Groq API returned status {response.status_code}: {response.text}")
+
+    data = response.json()
+    raw_text = data['choices'][0]['message']['content'].strip()
+    print(f"[v0] Groq response tokens: {data.get('usage', {})}")
+    return extract_json(raw_text)
+
+
+def generate_mcqs_with_groq(text, num_questions=5, difficulty='medium'):
+    """
+    Generate MCQs using Groq API with batching for large requests.
+    """
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not found in environment variables.")
+
+    num_questions = int(num_questions)
+    all_mcqs = []
+    remaining = num_questions
+    batch_num = 0
+
+    print(f"[v0] Generating {num_questions} MCQs from text (batches of {BATCH_SIZE})")
+
+    while remaining > 0:
+        batch_num += 1
+        batch_count = min(remaining, BATCH_SIZE)
+        print(f"[v0] Batch {batch_num}: requesting {batch_count} questions...")
+
+        # Build list of already-generated questions to avoid duplicates
+        existing_questions = [m['question'] for m in all_mcqs]
+        avoid_text = ""
+        if existing_questions:
+            avoid_text = "\n\nIMPORTANT: Do NOT repeat any of these previously generated questions:\n" + "\n".join(f"- {q[:80]}" for q in existing_questions[-20:])
+
+        prompt = f"""Generate exactly {batch_count} multiple choice questions from the following text.
 
 Difficulty level: {difficulty}
 
@@ -83,6 +143,7 @@ Rules:
 - Questions should test understanding of the content
 - Return ONLY valid JSON array, no additional text
 - No markdown formatting, no code blocks
+{avoid_text}
 
 Required JSON format:
 [
@@ -94,110 +155,33 @@ Required JSON format:
 ]
 
 Text to generate questions from:
-{text[:3000]}"""
+{text[:4000]}"""
 
-    payload = {
-        "model": "llama-3.3-70b-versatile",  # Updated from deprecated mixtral-8x7b-32768 to llama-3.3-70b-versatile
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are an expert educator who creates high-quality multiple choice questions. Always return valid JSON arrays only, with no additional formatting or text."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.7,
-        "max_tokens": 2000
-    }
+        messages = [
+            {"role": "system", "content": "You are an expert educator who creates high-quality multiple choice questions. Always return valid JSON arrays only, with no additional formatting or text."},
+            {"role": "user", "content": prompt}
+        ]
 
-    try:
-        print("[v0] Sending request to Groq API...")
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        
-        print(f"[v0] Response status code: {response.status_code}")
-        
-        if response.status_code != 200:
-            print(f"[v0] Error response: {response.text}")
-            raise Exception(f"Groq API returned status {response.status_code}: {response.text}")
-        
-        data = response.json()
-        
-        print("\n--- GROQ API RESPONSE ---")
-        print(f"Model used: {data.get('model', 'unknown')}")
-        print(f"Tokens used: {data.get('usage', {})}")
-        
-        raw_text = data['choices'][0]['message']['content'].strip()
-        print(f"Raw response: {raw_text[:200]}...")
-        
-        mcqs = extract_json(raw_text)
-        
-        if not mcqs:
-            print("WARNING: Could not extract valid JSON from response")
-            return []
-        
-        print(f"Successfully parsed {len(mcqs)} MCQs")
-        
-        formatted_mcqs = []
-        for mcq in mcqs:
-            if 'question' in mcq and 'options' in mcq and 'answer' in mcq:
-                options = mcq['options']
-                
-                # Ensure options is a list
-                if not isinstance(options, list):
-                    print(f"[v0] Skipping question - options is not a list: {type(options)}")
-                    continue
-                
-                # Ensure we have at least 4 options
-                if len(options) < 4:
-                    print(f"[v0] Skipping question - not enough options: {len(options)}")
-                    continue
-                
-                # Convert all options to strings safely
-                try:
-                    option_a = str(options[0]) if options[0] is not None else ""
-                    option_b = str(options[1]) if options[1] is not None else ""
-                    option_c = str(options[2]) if options[2] is not None else ""
-                    option_d = str(options[3]) if options[3] is not None else ""
-                except (IndexError, TypeError) as e:
-                    print(f"[v0] Error accessing options: {e}")
-                    continue
-                
-                formatted_mcq = {
-                    'question': str(mcq['question']),
-                    'option_a': option_a,
-                    'option_b': option_b,
-                    'option_c': option_c,
-                    'option_d': option_d,
-                    'correct_answer': 'A',  # Default to A
-                    'difficulty': difficulty
-                }
-                
-                # Find which option matches the correct answer
-                answer_text = str(mcq['answer']).strip()
-                option_list = [option_a, option_b, option_c, option_d]
-                
-                for i in range(4):  # Use explicit range(4) instead of min()
-                    if option_list[i].strip() == answer_text:
-                        formatted_mcq['correct_answer'] = ['A', 'B', 'C', 'D'][i]
-                        break
-                
-                formatted_mcqs.append(formatted_mcq)
-                print(f"[v0] Successfully formatted MCQ: {formatted_mcq['question'][:50]}...")
-        
-        print(f"[v0] Formatted {len(formatted_mcqs)} MCQs successfully")
-        
-        # Return exactly the number requested, or all if less
-        result = formatted_mcqs[:int(num_questions)]
-        print(f"[v0] Returning {len(result)} MCQs")
-        return result
+        try:
+            mcqs_raw = _call_groq_api(api_key, messages)
+            if mcqs_raw:
+                formatted = _format_mcqs(mcqs_raw, difficulty)
+                # Filter out duplicates
+                for mcq in formatted:
+                    if mcq['question'] not in [m['question'] for m in all_mcqs]:
+                        all_mcqs.append(mcq)
+                print(f"[v0] Batch {batch_num}: got {len(formatted)} MCQs, total so far: {len(all_mcqs)}")
+            else:
+                print(f"[v0] Batch {batch_num}: no MCQs parsed, retrying...")
+        except Exception as e:
+            print(f"[v0] Batch {batch_num} error: {e}")
 
-    except Exception as e:
-        print(f"[v0] Error calling Groq API: {e}")
-        import traceback
-        traceback.print_exc()
-        raise Exception(f"Failed to generate MCQs with Groq: {str(e)}")
+        remaining = num_questions - len(all_mcqs)
+        if remaining > 0:
+            time.sleep(0.3)
+
+    print(f"[v0] Total MCQs generated: {len(all_mcqs)}")
+    return all_mcqs[:num_questions]
 
 def generate_mcqs(text, num_questions=5, difficulty='medium'):
     """
@@ -214,45 +198,38 @@ def generate_mcqs_from_pdf(pdf_file, num_questions=5, difficulty='medium'):
 
 def generate_mcqs_from_topic(topic, num_questions=5, difficulty='medium'):
     """
-    Generate MCQs based on a topic name using Groq API.
-    The AI will use its knowledge to create questions about the topic.
-    
-    Args:
-        topic (str): The topic name to generate MCQs about
-        num_questions (int): Number of MCQs to generate
-        difficulty (str): Difficulty level (easy/medium/hard)
-    
-    Returns:
-        list: List of MCQ dictionaries
+    Generate MCQs based on a topic name using Groq API with batching.
     """
     api_key = os.getenv('GROQ_API_KEY')
-    
     if not api_key:
-        print("\n" + "="*60)
-        print("[v0] ERROR: GROQ_API_KEY NOT FOUND")
-        print("="*60)
-        raise ValueError("GROQ_API_KEY not found in environment variables. Make sure GROQ_API_KEY is set in backend/.env")
-    
-    print(f"[v0] Generating MCQs from topic: {topic}")
-    print(f"[v0] Using Groq API key: {api_key[:10]}...{api_key[-5:]}")
+        raise ValueError("GROQ_API_KEY not found in environment variables.")
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    num_questions = int(num_questions)
+    all_mcqs = []
+    remaining = num_questions
+    batch_num = 0
 
-    # Difficulty-specific instructions
     difficulty_instructions = {
-        'easy': 'Create basic, straightforward questions that test fundamental understanding. Questions should be simple and direct.',
-        'medium': 'Create moderately challenging questions that test deeper understanding. Include some questions that require application of concepts.',
-        'hard': 'Create challenging questions that test advanced understanding. Include questions requiring analysis, synthesis, or application of multiple concepts.'
+        'easy': 'Create basic, straightforward questions that test fundamental understanding.',
+        'medium': 'Create moderately challenging questions that test deeper understanding and application of concepts.',
+        'hard': 'Create challenging questions requiring analysis, synthesis, or application of multiple concepts.'
     }
 
-    prompt = f"""You are an expert educator creating a quiz about "{topic}".
+    print(f"[v0] Generating {num_questions} MCQs from topic: {topic} (batches of {BATCH_SIZE})")
 
-Generate exactly {num_questions} high-quality multiple choice questions about {topic}.
+    while remaining > 0:
+        batch_num += 1
+        batch_count = min(remaining, BATCH_SIZE)
+        print(f"[v0] Topic Batch {batch_num}: requesting {batch_count} questions...")
+
+        existing_questions = [m['question'] for m in all_mcqs]
+        avoid_text = ""
+        if existing_questions:
+            avoid_text = "\n\nIMPORTANT: Do NOT repeat any of these previously generated questions:\n" + "\n".join(f"- {q[:80]}" for q in existing_questions[-20:])
+
+        prompt = f"""You are an expert educator creating a quiz about "{topic}".
+
+Generate exactly {batch_count} high-quality multiple choice questions about {topic}.
 
 Difficulty level: {difficulty.upper()}
 {difficulty_instructions.get(difficulty, difficulty_instructions['medium'])}
@@ -264,6 +241,7 @@ IMPORTANT RULES:
 4. Cover different aspects/subtopics of "{topic}"
 5. Make incorrect options plausible but clearly wrong
 6. Return ONLY valid JSON array, no additional text or markdown
+{avoid_text}
 
 Required JSON format:
 [
@@ -274,100 +252,29 @@ Required JSON format:
   }}
 ]
 
-Generate {num_questions} questions about: {topic}"""
+Generate {batch_count} questions about: {topic}"""
 
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are an expert educator who creates high-quality, factually accurate multiple choice questions. You have comprehensive knowledge across all subjects. Always return valid JSON arrays only, with no additional formatting or text. Ensure all facts in your questions are accurate and verifiable."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "temperature": 0.5,  # Lower temperature for more accurate, factual responses
-        "max_tokens": 3000
-    }
+        messages = [
+            {"role": "system", "content": "You are an expert educator who creates high-quality, factually accurate multiple choice questions. You have comprehensive knowledge across all subjects. Always return valid JSON arrays only, with no additional formatting or text."},
+            {"role": "user", "content": prompt}
+        ]
 
-    try:
-        print("[v0] Sending topic-based request to Groq API...")
-        response = requests.post(url, headers=headers, json=payload, timeout=90)
-        
-        print(f"[v0] Response status code: {response.status_code}")
-        
-        if response.status_code != 200:
-            print(f"[v0] Error response: {response.text}")
-            raise Exception(f"Groq API returned status {response.status_code}: {response.text}")
-        
-        data = response.json()
-        
-        print("\n--- GROQ API RESPONSE (TOPIC-BASED) ---")
-        print(f"Model used: {data.get('model', 'unknown')}")
-        print(f"Tokens used: {data.get('usage', {})}")
-        
-        raw_text = data['choices'][0]['message']['content'].strip()
-        print(f"Raw response: {raw_text[:200]}...")
-        
-        mcqs = extract_json(raw_text)
-        
-        if not mcqs:
-            print("WARNING: Could not extract valid JSON from response")
-            return []
-        
-        print(f"Successfully parsed {len(mcqs)} MCQs from topic")
-        
-        # Format MCQs to match expected structure
-        formatted_mcqs = []
-        for mcq in mcqs:
-            if 'question' in mcq and 'options' in mcq and 'answer' in mcq:
-                options = mcq['options']
-                
-                if not isinstance(options, list) or len(options) < 4:
-                    print(f"[v0] Skipping question - invalid options")
-                    continue
-                
-                try:
-                    option_a = str(options[0]) if options[0] is not None else ""
-                    option_b = str(options[1]) if options[1] is not None else ""
-                    option_c = str(options[2]) if options[2] is not None else ""
-                    option_d = str(options[3]) if options[3] is not None else ""
-                except (IndexError, TypeError) as e:
-                    print(f"[v0] Error accessing options: {e}")
-                    continue
-                
-                formatted_mcq = {
-                    'question': str(mcq['question']),
-                    'option_a': option_a,
-                    'option_b': option_b,
-                    'option_c': option_c,
-                    'option_d': option_d,
-                    'correct_answer': 'A',  # Default to A
-                    'difficulty': difficulty
-                }
-                
-                # Find which option matches the correct answer
-                answer_text = str(mcq['answer']).strip()
-                option_list = [option_a, option_b, option_c, option_d]
-                
-                for i in range(4):
-                    if option_list[i].strip() == answer_text:
-                        formatted_mcq['correct_answer'] = ['A', 'B', 'C', 'D'][i]
-                        break
-                
-                formatted_mcqs.append(formatted_mcq)
-                print(f"[v0] Successfully formatted MCQ: {formatted_mcq['question'][:50]}...")
-        
-        print(f"[v0] Formatted {len(formatted_mcqs)} MCQs from topic successfully")
-        
-        result = formatted_mcqs[:int(num_questions)]
-        print(f"[v0] Returning {len(result)} MCQs")
-        return result
+        try:
+            mcqs_raw = _call_groq_api(api_key, messages)
+            if mcqs_raw:
+                formatted = _format_mcqs(mcqs_raw, difficulty)
+                for mcq in formatted:
+                    if mcq['question'] not in [m['question'] for m in all_mcqs]:
+                        all_mcqs.append(mcq)
+                print(f"[v0] Topic Batch {batch_num}: got {len(formatted)} MCQs, total so far: {len(all_mcqs)}")
+            else:
+                print(f"[v0] Topic Batch {batch_num}: no MCQs parsed")
+        except Exception as e:
+            print(f"[v0] Topic Batch {batch_num} error: {e}")
 
-    except Exception as e:
-        print(f"[v0] Error calling Groq API for topic: {e}")
-        import traceback
-        traceback.print_exc()
-        raise Exception(f"Failed to generate MCQs from topic with Groq: {str(e)}")
+        remaining = num_questions - len(all_mcqs)
+        if remaining > 0:
+            time.sleep(0.3)
+
+    print(f"[v0] Total topic MCQs generated: {len(all_mcqs)}")
+    return all_mcqs[:num_questions]

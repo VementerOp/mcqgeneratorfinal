@@ -184,7 +184,7 @@ const TestSetup = () => {
                 value={formData.num_questions}
                 onChange={handleChange}
                 min="1"
-                max="100"
+                max="200"
                 required
               />
             </div>
